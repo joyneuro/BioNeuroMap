@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Association between Biomarker and Disorder</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        header {
+            background-color: #2c3e50;
+            color: #ecf0f1;
+            text-align: center;
+            padding: 1rem;
+        }
+        .content {
+            background-color: #fff;
+            padding: 20px;
+            margin-top: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        select, button, input {
+            margin: 10px 0;
+            padding: 8px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        #chartContainer {
+            width: 100%;
+            height: 400px;
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Association between Biomarker and disorder </h1>
+    </header>
+
+    <div class="container">
+        <div class="content">
+            <!-- 移除文件输入框 -->
+            <label for="selectBiomarker">Biomarker：</label>
+            <select id="selectBiomarker"></select>
+            <br>
+            <label for="selectDisorder">Disorder：</label>
+            <select id="selectDisorder"></select>
+            <br>
+            <button onclick="showResults()">显示结果</button>
+            <div id="result"></div>
+            <div id="chartContainer">
+                <canvas id="scatterChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let data = [];
+        let chart;
+        const csvFilePath = 'data.csv'; // 假设CSV文件名为data.csv，位于与HTML文件相同的目录
+
+        document.addEventListener('DOMContentLoaded', loadCSVFile);
+
+        function loadCSVFile() {
+            console.log('尝试加载文件:', csvFilePath);
+            Papa.parse(csvFilePath, {
+                download: true,
+                complete: function(results) {
+                    if (results.errors.length > 0) {
+                        console.error('解析CSV时出现错误:', results.errors);
+                        alert('解析CSV文件时出错，请检查控制台以获取更多信息。');
+                        return;
+                    }
+                    data = results.data;
+                    console.log('成功加载数据，行数:', data.length);
+                    console.log('数据样例:', data.slice(0, 3));
+                    updateSelectOptions();
+                },
+                error: function(error) {
+                    console.error('加载CSV文件时出错:', error);
+                    alert('加载CSV文件时出错，请检查控制台以获取更多信息。');
+                }
+            });
+        }
+
+        function updateSelectOptions() {
+            const selectBiomarker = document.getElementById('selectBiomarker');
+            const selectDisorder = document.getElementById('selectDisorder');
+            
+            const uniqueBiomarkers = new Set(data.slice(1).map(row => row[0]));
+            const uniqueDisorders = new Set(data.slice(1).map(row => row[1]));
+
+            populateSelect(selectBiomarker, uniqueBiomarkers);
+            populateSelect(selectDisorder, uniqueDisorders);
+        }
+
+        function populateSelect(selectElement, uniqueValues) {
+            selectElement.innerHTML = '<option value="">请选择</option>';
+            uniqueValues.forEach(value => {
+                if (value) {
+                    const option = document.createElement('option');
+                    option.value = value;
+                    option.textContent = value;
+                    selectElement.appendChild(option);
+                }
+            });
+        }
+
+        function showResults() {
+            const selectedBiomarker = document.getElementById('selectBiomarker').value;
+            const selectedDisorder = document.getElementById('selectDisorder').value;
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = '';
+
+            const filteredData = data.slice(1).filter(row => 
+                (!selectedBiomarker || row[0] === selectedBiomarker) && 
+                (!selectedDisorder || row[1] === selectedDisorder)
+            );
+            
+            if (filteredData.length === 0) {
+                resultDiv.innerHTML = '<p>没有找到匹配的结果。</p>';
+                return;
+            }
+
+            const chartData = filteredData.map(row => ({
+                x: parseFloat(row[2]), // R值
+                y: parseFloat(row[3]), // P值
+                biomarker: row[0],
+                disorder: row[1]
+            }));
+
+            createScatterPlot(chartData);
+
+            // 创建表格
+            let resultHTML = '<h2>详细结果：</h2>';
+            resultHTML += '<table border="1" style="width:100%; border-collapse: collapse;">';
+            resultHTML += '<tr><th>Biomarker</th><th>Disorder</th><th>R值</th><th>P值</th></tr>';
+            
+            filteredData.forEach(row => {
+                resultHTML += `
+                    <tr>
+                        <td>${row[0]}</td>
+                        <td>${row[1]}</td>
+                        <td>${row[2]}</td>
+                        <td>${row[3]}</td>
+                    </tr>
+                `;
+            });
+            
+            resultHTML += '</table>';
+            resultDiv.innerHTML = resultHTML;
+        }
+
+        function createScatterPlot(chartData) {
+            const ctx = document.getElementById('scatterChart').getContext('2d');
+            
+            if (chart) {
+                chart.destroy();
+            }
+
+            chart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [{
+                        label: 'Biomarker vs Disorder',
+                        data: chartData,
+                        backgroundColor: 'rgba(75, 192, 192, 0.6)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'R值'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'P值'
+                            }
+                        }
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const point = context.raw;
+                                    return `Biomarker: ${point.biomarker}, Disorder: ${point.disorder}, R: ${point.x}, P: ${point.y}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
